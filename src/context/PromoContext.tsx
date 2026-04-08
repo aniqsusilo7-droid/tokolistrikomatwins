@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '../lib/supabase';
 
 export interface PromoItem {
   id: number;
@@ -17,82 +18,150 @@ export interface PromoSettings {
 
 interface PromoContextType {
   promoSettings: PromoSettings;
-  updatePromoSettings: (settings: PromoSettings) => void;
-  addPromoItem: (promo: Omit<PromoItem, 'id'>) => void;
-  updatePromoItem: (id: number, promo: Omit<PromoItem, 'id'>) => void;
-  deletePromoItem: (id: number) => void;
+  updatePromoSettings: (settings: PromoSettings) => Promise<void>;
+  addPromoItem: (promo: Omit<PromoItem, 'id'>) => Promise<void>;
+  updatePromoItem: (id: number, promo: Omit<PromoItem, 'id'>) => Promise<void>;
+  deletePromoItem: (id: number) => Promise<void>;
+  loading: boolean;
 }
 
 const defaultPromoSettings: PromoSettings = {
   isActive: true,
-  endDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Default 24 jam dari sekarang
-  promos: [
-    {
-      id: 1,
-      title: 'Paket Lampu LED Hemat Energi',
-      description: 'Beli 5 Lampu LED Philips 12W Gratis 1. Cocok untuk penerangan rumah hemat listrik.',
-      discount: 'Beli 5 Gratis 1',
-      image: 'https://picsum.photos/seed/promo1/600/400',
-      terms: 'Berlaku kelipatan. Selama persediaan masih ada.',
-    },
-    {
-      id: 2,
-      title: 'Bundle Saklar + Stop Kontak Broco',
-      description: 'Paket hemat renovasi rumah. 10 Saklar Engkel + 10 Stop Kontak Arde.',
-      discount: 'Diskon 15%',
-      image: 'https://picsum.photos/seed/promo2/600/400',
-      terms: 'Minimal pembelian 1 bundle.',
-    },
-    {
-      id: 3,
-      title: 'Promo Spesial Genset Mini',
-      description: 'Persiapan mati lampu! Genset portable 1000W harga miring.',
-      discount: 'Potongan Rp 500.000',
-      image: 'https://picsum.photos/seed/promo3/600/400',
-      terms: 'Garansi resmi 1 tahun. Free ongkir Jakarta.',
-    },
-  ],
+  endDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  promos: [],
 };
 
 const PromoContext = createContext<PromoContextType | undefined>(undefined);
 
 export function PromoProvider({ children }: { children: ReactNode }) {
-  const [promoSettings, setPromoSettings] = useState<PromoSettings>(() => {
-    const saved = localStorage.getItem('oma_promo');
-    return saved ? JSON.parse(saved) : defaultPromoSettings;
-  });
+  const [promoSettings, setPromoSettings] = useState<PromoSettings>(defaultPromoSettings);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    localStorage.setItem('oma_promo', JSON.stringify(promoSettings));
-  }, [promoSettings]);
+    fetchPromoData();
+  }, []);
 
-  const updatePromoSettings = (settings: PromoSettings) => {
-    setPromoSettings(settings);
+  const fetchPromoData = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch settings
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('promo_settings')
+        .select('*')
+        .single();
+        
+      if (settingsError && settingsError.code !== 'PGRST116') {
+        console.error('Error fetching promo settings:', settingsError);
+      }
+
+      // Fetch promos
+      const { data: promosData, error: promosError } = await supabase
+        .from('promos')
+        .select('*')
+        .order('id', { ascending: true });
+        
+      if (promosError) {
+        console.error('Error fetching promos:', promosError);
+      }
+
+      setPromoSettings({
+        isActive: settingsData ? settingsData.is_active : true,
+        endDate: settingsData ? settingsData.end_date : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        promos: promosData || []
+      });
+      
+    } catch (error) {
+      console.error('Error in fetchPromoData:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const addPromoItem = (promo: Omit<PromoItem, 'id'>) => {
-    setPromoSettings((prev) => ({
-      ...prev,
-      promos: [...(prev.promos || []), { ...promo, id: Date.now() }],
-    }));
+  const updatePromoSettings = async (settings: PromoSettings) => {
+    try {
+      const { error } = await supabase
+        .from('promo_settings')
+        .upsert({ 
+          id: 1, 
+          is_active: settings.isActive, 
+          end_date: settings.endDate 
+        });
+
+      if (error) throw error;
+      
+      setPromoSettings(prev => ({
+        ...prev,
+        isActive: settings.isActive,
+        endDate: settings.endDate
+      }));
+    } catch (error) {
+      console.error('Error updating promo settings:', error);
+      throw error;
+    }
   };
 
-  const updatePromoItem = (id: number, promo: Omit<PromoItem, 'id'>) => {
-    setPromoSettings((prev) => ({
-      ...prev,
-      promos: (prev.promos || []).map((p) => (p.id === id ? { ...promo, id } : p)),
-    }));
+  const addPromoItem = async (promo: Omit<PromoItem, 'id'>) => {
+    try {
+      const { data, error } = await supabase
+        .from('promos')
+        .insert([promo])
+        .select();
+
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        setPromoSettings(prev => ({
+          ...prev,
+          promos: [...(prev.promos || []), data[0]]
+        }));
+      }
+    } catch (error) {
+      console.error('Error adding promo:', error);
+      throw error;
+    }
   };
 
-  const deletePromoItem = (id: number) => {
-    setPromoSettings((prev) => ({
-      ...prev,
-      promos: (prev.promos || []).filter((p) => p.id !== id),
-    }));
+  const updatePromoItem = async (id: number, promo: Omit<PromoItem, 'id'>) => {
+    try {
+      const { error } = await supabase
+        .from('promos')
+        .update(promo)
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      setPromoSettings(prev => ({
+        ...prev,
+        promos: (prev.promos || []).map(p => p.id === id ? { ...promo, id } : p)
+      }));
+    } catch (error) {
+      console.error('Error updating promo:', error);
+      throw error;
+    }
+  };
+
+  const deletePromoItem = async (id: number) => {
+    try {
+      const { error } = await supabase
+        .from('promos')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      setPromoSettings(prev => ({
+        ...prev,
+        promos: (prev.promos || []).filter(p => p.id !== id)
+      }));
+    } catch (error) {
+      console.error('Error deleting promo:', error);
+      throw error;
+    }
   };
 
   return (
-    <PromoContext.Provider value={{ promoSettings, updatePromoSettings, addPromoItem, updatePromoItem, deletePromoItem }}>
+    <PromoContext.Provider value={{ promoSettings, updatePromoSettings, addPromoItem, updatePromoItem, deletePromoItem, loading }}>
       {children}
     </PromoContext.Provider>
   );
