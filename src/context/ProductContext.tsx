@@ -1,8 +1,9 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { supabase } from '../lib/supabase';
+import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc, addDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 
 export interface Product {
-  id: number;
+  id: string; // Changed to string for Firestore defaults
   name: string;
   category: string;
   brand: string;
@@ -12,11 +13,27 @@ export interface Product {
   image: string;
 }
 
+export interface Category {
+  id: string;
+  name: string;
+}
+
+export interface Brand {
+  id: string;
+  name: string;
+}
+
 interface ProductContextType {
   products: Product[];
+  categories: Category[];
+  brands: Brand[];
   addProduct: (p: Omit<Product, 'id'>) => Promise<void>;
-  updateProduct: (id: number, p: Omit<Product, 'id'>) => Promise<void>;
-  deleteProduct: (id: number) => Promise<void>;
+  updateProduct: (id: string, p: Omit<Product, 'id'>) => Promise<void>;
+  deleteProduct: (id: string) => Promise<void>;
+  addCategory: (name: string) => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
+  addBrand: (name: string) => Promise<void>;
+  deleteBrand: (id: string) => Promise<void>;
   loading: boolean;
 }
 
@@ -24,121 +41,115 @@ const ProductContext = createContext<ProductContextType | undefined>(undefined);
 
 export function ProductProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchProducts();
-  }, []);
-
-  const fetchProducts = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .order('id', { ascending: true });
-      
-      if (error) throw error;
-      
-      if (data) {
-        // Map database snake_case to camelCase
-        const formattedData = data.map(item => ({
-          id: item.id,
-          name: item.name,
-          category: item.category,
-          brand: item.brand,
-          price: item.price,
-          originalPrice: item.original_price,
-          rating: item.rating,
-          image: item.image
-        }));
-        setProducts(formattedData);
-      }
-    } catch (error) {
-      console.error('Error fetching products:', error);
-    } finally {
+    // Realtime listeners via onSnapshot
+    setLoading(true);
+    
+    const unsubscribeProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Product[];
+      setProducts(data);
       setLoading(false);
-    }
-  };
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'products');
+    });
+
+    const unsubscribeCategories = onSnapshot(collection(db, 'categories'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Category[];
+      setCategories(data);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'categories');
+    });
+
+    const unsubscribeBrands = onSnapshot(collection(db, 'brands'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Brand[];
+      setBrands(data);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'brands');
+    });
+
+    return () => {
+      unsubscribeProducts();
+      unsubscribeCategories();
+      unsubscribeBrands();
+    };
+  }, []);
 
   const addProduct = async (p: Omit<Product, 'id'>) => {
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .insert([{
-          name: p.name,
-          category: p.category,
-          brand: p.brand,
-          price: p.price,
-          original_price: p.originalPrice,
-          rating: p.rating,
-          image: p.image
-        }])
-        .select();
-
-      if (error) throw error;
-      
-      if (data && data.length > 0) {
-        const newItem = data[0];
-        setProducts([...products, {
-          id: newItem.id,
-          name: newItem.name,
-          category: newItem.category,
-          brand: newItem.brand,
-          price: newItem.price,
-          originalPrice: newItem.original_price,
-          rating: newItem.rating,
-          image: newItem.image
-        }]);
-      }
+      await addDoc(collection(db, 'products'), p);
     } catch (error) {
-      console.error('Error adding product:', error);
-      throw error;
+      handleFirestoreError(error, OperationType.CREATE, 'products');
     }
   };
 
-  const updateProduct = async (id: number, p: Omit<Product, 'id'>) => {
+  const updateProduct = async (id: string, p: Omit<Product, 'id'>) => {
     try {
-      const { error } = await supabase
-        .from('products')
-        .update({
-          name: p.name,
-          category: p.category,
-          brand: p.brand,
-          price: p.price,
-          original_price: p.originalPrice,
-          rating: p.rating,
-          image: p.image
-        })
-        .eq('id', id);
-
-      if (error) throw error;
-      
-      setProducts(products.map(x => x.id === id ? { ...p, id } : x));
+      await updateDoc(doc(db, 'products', id), { ...p });
     } catch (error) {
-      console.error('Error updating product:', error);
-      throw error;
+      handleFirestoreError(error, OperationType.UPDATE, `products/${id}`);
     }
   };
 
-  const deleteProduct = async (id: number) => {
+  const deleteProduct = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from('products')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-      
-      setProducts(products.filter(x => x.id !== id));
+      await deleteDoc(doc(db, 'products', id));
     } catch (error) {
-      console.error('Error deleting product:', error);
-      throw error;
+      handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
+    }
+  };
+
+  const addCategory = async (name: string) => {
+    try {
+      await addDoc(collection(db, 'categories'), { name });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'categories');
+    }
+  };
+
+  const deleteCategory = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'categories', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `categories/${id}`);
+    }
+  };
+
+  const addBrand = async (name: string) => {
+    try {
+      await addDoc(collection(db, 'brands'), { name });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'brands');
+    }
+  };
+
+  const deleteBrand = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'brands', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `brands/${id}`);
     }
   };
 
   return (
-    <ProductContext.Provider value={{ products, addProduct, updateProduct, deleteProduct, loading }}>
+    <ProductContext.Provider value={{ 
+      products, categories, brands, 
+      addProduct, updateProduct, deleteProduct, 
+      addCategory, deleteCategory, addBrand, deleteBrand,
+      loading 
+    }}>
       {children}
     </ProductContext.Provider>
   );

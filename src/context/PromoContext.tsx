@@ -1,8 +1,9 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { supabase } from '../lib/supabase';
+import { collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc, addDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 
 export interface PromoItem {
-  id: number;
+  id: string; // Changed to string for Firestore defaults
   title: string;
   description: string;
   discount: string;
@@ -20,8 +21,8 @@ interface PromoContextType {
   promoSettings: PromoSettings;
   updatePromoSettings: (settings: PromoSettings) => Promise<void>;
   addPromoItem: (promo: Omit<PromoItem, 'id'>) => Promise<void>;
-  updatePromoItem: (id: number, promo: Omit<PromoItem, 'id'>) => Promise<void>;
-  deletePromoItem: (id: number) => Promise<void>;
+  updatePromoItem: (id: string, promo: Omit<PromoItem, 'id'>) => Promise<void>;
+  deletePromoItem: (id: string) => Promise<void>;
   loading: boolean;
 }
 
@@ -38,125 +39,74 @@ export function PromoProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchPromoData();
-  }, []);
+    // Realtime listeners via onSnapshot
+    setLoading(true);
 
-  const fetchPromoData = async () => {
-    try {
-      setLoading(true);
-      
-      // Fetch settings
-      const { data: settingsData, error: settingsError } = await supabase
-        .from('promo_settings')
-        .select('*')
-        .single();
-        
-      if (settingsError && settingsError.code !== 'PGRST116') {
-        console.error('Error fetching promo settings:', settingsError);
+    const unsubscribeSettings = onSnapshot(doc(db, 'settings', 'promo'), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setPromoSettings(prev => ({
+          ...prev,
+          isActive: data.isActive,
+          endDate: data.endDate
+        }));
       }
-
-      // Fetch promos
-      const { data: promosData, error: promosError } = await supabase
-        .from('promos')
-        .select('*')
-        .order('id', { ascending: true });
-        
-      if (promosError) {
-        console.error('Error fetching promos:', promosError);
-      }
-
-      setPromoSettings({
-        isActive: settingsData ? settingsData.is_active : true,
-        endDate: settingsData ? settingsData.end_date : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        promos: promosData || []
-      });
-      
-    } catch (error) {
-      console.error('Error in fetchPromoData:', error);
-    } finally {
       setLoading(false);
-    }
-  };
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'settings/promo');
+    });
+
+    const unsubscribePromos = onSnapshot(collection(db, 'promos'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as PromoItem[];
+      setPromoSettings(prev => ({
+        ...prev,
+        promos: data
+      }));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'promos');
+    });
+
+    return () => {
+      unsubscribeSettings();
+      unsubscribePromos();
+    };
+  }, []);
 
   const updatePromoSettings = async (settings: PromoSettings) => {
     try {
-      const { error } = await supabase
-        .from('promo_settings')
-        .upsert({ 
-          id: 1, 
-          is_active: settings.isActive, 
-          end_date: settings.endDate 
-        });
-
-      if (error) throw error;
-      
-      setPromoSettings(prev => ({
-        ...prev,
+      await setDoc(doc(db, 'settings', 'promo'), {
         isActive: settings.isActive,
         endDate: settings.endDate
-      }));
+      }, { merge: true });
     } catch (error) {
-      console.error('Error updating promo settings:', error);
-      throw error;
+      handleFirestoreError(error, OperationType.WRITE, 'settings/promo');
     }
   };
 
   const addPromoItem = async (promo: Omit<PromoItem, 'id'>) => {
     try {
-      const { data, error } = await supabase
-        .from('promos')
-        .insert([promo])
-        .select();
-
-      if (error) throw error;
-      
-      if (data && data.length > 0) {
-        setPromoSettings(prev => ({
-          ...prev,
-          promos: [...(prev.promos || []), data[0]]
-        }));
-      }
+      await addDoc(collection(db, 'promos'), promo);
     } catch (error) {
-      console.error('Error adding promo:', error);
-      throw error;
+      handleFirestoreError(error, OperationType.CREATE, 'promos');
     }
   };
 
-  const updatePromoItem = async (id: number, promo: Omit<PromoItem, 'id'>) => {
+  const updatePromoItem = async (id: string, promo: Omit<PromoItem, 'id'>) => {
     try {
-      const { error } = await supabase
-        .from('promos')
-        .update(promo)
-        .eq('id', id);
-
-      if (error) throw error;
-      
-      setPromoSettings(prev => ({
-        ...prev,
-        promos: (prev.promos || []).map(p => p.id === id ? { ...promo, id } : p)
-      }));
+      await updateDoc(doc(db, 'promos', id), { ...promo });
     } catch (error) {
-      console.error('Error updating promo:', error);
-      throw error;
+      handleFirestoreError(error, OperationType.UPDATE, `promos/${id}`);
     }
   };
 
-  const deletePromoItem = async (id: number) => {
+  const deletePromoItem = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from('promos')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-      
-      setPromoSettings(prev => ({
-        ...prev,
-        promos: (prev.promos || []).filter(p => p.id !== id)
-      }));
+      await deleteDoc(doc(db, 'promos', id));
     } catch (error) {
-      console.error('Error deleting promo:', error);
-      throw error;
+      handleFirestoreError(error, OperationType.DELETE, `promos/${id}`);
     }
   };
 

@@ -1,20 +1,62 @@
-import { useState, FormEvent, ChangeEvent } from 'react';
+import { useState, FormEvent, ChangeEvent, useEffect } from 'react';
 import { SEO } from '../components/SEO';
 import { useProducts, Product } from '../context/ProductContext';
 import { usePromo, PromoItem } from '../context/PromoContext';
-import { Edit, Trash2, Plus, Image as ImageIcon, Lock, Settings, Package } from 'lucide-react';
+import { Edit, Trash2, Plus, Lock, Settings, Package, Tags, LogOut } from 'lucide-react';
+import { signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'firebase/auth';
+import { auth } from '../firebase';
 
 export function Admin() {
-  const { products, addProduct, updateProduct, deleteProduct } = useProducts();
+  const { 
+    products, addProduct, updateProduct, deleteProduct,
+    categories, brands, addCategory, deleteCategory, addBrand, deleteBrand 
+  } = useProducts();
   const { promoSettings, updatePromoSettings, addPromoItem, updatePromoItem, deletePromoItem } = usePromo();
   
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [password, setPassword] = useState('');
+  const [authChecking, setAuthChecking] = useState(true);
   const [error, setError] = useState('');
   
-  const [activeTab, setActiveTab] = useState<'products' | 'promo'>('products');
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        if (user.email === 'aniqsusilo7@gmail.com') {
+          setIsAuthenticated(true);
+          setError('');
+        } else {
+          setIsAuthenticated(false);
+          setError('Akses ditolak. Email tidak memiliki izin admin.');
+          signOut(auth);
+        }
+      } else {
+        setIsAuthenticated(false);
+      }
+      setAuthChecking(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogin = async (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (err: any) {
+      setError(err.message || 'Gagal login.');
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
+
+  const [activeTab, setActiveTab] = useState<'products' | 'promo' | 'categories'>('products');
   const [isEditing, setIsEditing] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [imageUploadMethod, setImageUploadMethod] = useState<'url' | 'file'>('url');
 
   const [formData, setFormData] = useState<Omit<Product, 'id'>>({
@@ -32,8 +74,17 @@ export function Admin() {
     endDate: (promoSettings?.endDate || new Date().toISOString()).slice(0, 16) // format for datetime-local input
   });
 
+  useEffect(() => {
+    if (promoSettings) {
+      setPromoForm({
+        isActive: promoSettings.isActive ?? true,
+        endDate: (promoSettings.endDate || new Date().toISOString()).slice(0, 16)
+      });
+    }
+  }, [promoSettings]);
+
   const [isEditingPromo, setIsEditingPromo] = useState(false);
-  const [editingPromoId, setEditingPromoId] = useState<number | null>(null);
+  const [editingPromoId, setEditingPromoId] = useState<string | null>(null);
   const [promoItemForm, setPromoItemForm] = useState<Omit<PromoItem, 'id'>>({
     title: '',
     description: '',
@@ -43,8 +94,8 @@ export function Admin() {
   });
   const [promoImageUploadMethod, setPromoImageUploadMethod] = useState<'url' | 'file'>('url');
 
-  const categories = ['Kabel', 'Lampu LED', 'Saklar & Stop Kontak', 'MCB', 'Kapasitor', 'Fiting', 'Lainnya'];
-  const brands = ['Eterna', 'Philips', 'Broco', 'Schneider', 'Hannochs', 'Shinyoku', 'Cahaya', 'Lainnya'];
+  const [newCategory, setNewCategory] = useState('');
+  const [newBrand, setNewBrand] = useState('');
 
   const handleEdit = (product: Product) => {
     setFormData({
@@ -61,7 +112,7 @@ export function Admin() {
     setIsEditing(true);
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = (id: string) => {
     if (window.confirm('Apakah Anda yakin ingin menghapus produk ini?')) {
       deleteProduct(id);
     }
@@ -109,16 +160,6 @@ export function Admin() {
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(price);
   };
 
-  const handleLogin = (e: FormEvent) => {
-    e.preventDefault();
-    if (password === 'aniqsusilo123') {
-      setIsAuthenticated(true);
-      setError('');
-    } else {
-      setError('Password salah!');
-    }
-  };
-
   const handleSavePromo = (e: FormEvent) => {
     e.preventDefault();
     updatePromoSettings({
@@ -142,7 +183,7 @@ export function Admin() {
     setIsEditingPromo(true);
   };
 
-  const handleDeletePromoItem = (id: number) => {
+  const handleDeletePromoItem = (id: string) => {
     if (window.confirm('Apakah Anda yakin ingin menghapus promo ini?')) {
       deletePromoItem(id);
     }
@@ -184,6 +225,30 @@ export function Admin() {
     }
   };
 
+  const handleAddCategory = async (e: FormEvent) => {
+    e.preventDefault();
+    if (newCategory.trim()) {
+      await addCategory(newCategory.trim());
+      setNewCategory('');
+    }
+  };
+
+  const handleAddBrand = async (e: FormEvent) => {
+    e.preventDefault();
+    if (newBrand.trim()) {
+      await addBrand(newBrand.trim());
+      setNewBrand('');
+    }
+  };
+
+  if (authChecking) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center bg-gray-50 px-4">
+        <p>Memuat...</p>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <>
@@ -195,25 +260,15 @@ export function Admin() {
                 <Lock className="h-8 w-8 text-primary" />
               </div>
               <h1 className="text-2xl font-bold text-gray-900">Login Admin</h1>
-              <p className="text-gray-500 mt-2">Masukkan password untuk mengakses panel admin.</p>
+              <p className="text-gray-500 mt-2">Login dengan Google untuk mengakses panel admin.</p>
             </div>
             <form onSubmit={handleLogin} className="space-y-6">
-              <div>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Password"
-                  className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-colors"
-                  required
-                />
-                {error && <p className="text-danger text-sm mt-2">{error}</p>}
-              </div>
+              {error && <p className="text-danger text-sm mt-2 text-center">{error}</p>}
               <button
                 type="submit"
                 className="w-full bg-primary text-white font-bold py-3 rounded-xl hover:bg-primary-dark transition-colors"
               >
-                Masuk
+                Login dengan Google
               </button>
             </form>
           </div>
@@ -229,8 +284,17 @@ export function Admin() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           <h1 className="text-3xl font-bold text-gray-900">Admin Panel</h1>
-          
-          <div className="flex bg-gray-100 p-1 rounded-lg">
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 text-red-600 hover:text-red-700 font-medium px-4 py-2 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            Logout
+          </button>
+        </div>
+
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+          <div className="flex flex-wrap bg-gray-100 p-1 rounded-lg gap-1">
             <button
               onClick={() => setActiveTab('products')}
               className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
@@ -238,6 +302,14 @@ export function Admin() {
               }`}
             >
               <Package className="h-4 w-4" /> Kelola Produk
+            </button>
+            <button
+              onClick={() => setActiveTab('categories')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
+                activeTab === 'categories' ? 'bg-white text-primary shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Tags className="h-4 w-4" /> Kategori & Merek
             </button>
             <button
               onClick={() => setActiveTab('promo')}
@@ -264,7 +336,7 @@ export function Admin() {
                     <input 
                       type="checkbox" 
                       className="sr-only peer"
-                      checked={promoForm.isActive}
+                      checked={promoForm.isActive ?? false}
                       onChange={(e) => setPromoForm({...promoForm, isActive: e.target.checked})}
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
@@ -556,21 +628,21 @@ export function Admin() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
                   <select 
-                    value={formData.category || 'Kabel'}
+                    value={formData.category || (categories[0]?.name || '')}
                     onChange={(e) => setFormData({...formData, category: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary focus:border-primary"
                   >
-                    {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                    {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Merek</label>
                   <select 
-                    value={formData.brand || 'Lainnya'}
+                    value={formData.brand || (brands[0]?.name || '')}
                     onChange={(e) => setFormData({...formData, brand: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-primary focus:border-primary"
                   >
-                    {brands.map(b => <option key={b} value={b}>{b}</option>)}
+                    {brands.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
                   </select>
                 </div>
                 <div>
@@ -679,6 +751,100 @@ export function Admin() {
           </div>
         </div>
           </>
+        )}
+
+        {activeTab === 'categories' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+              <h2 className="text-xl font-bold mb-4">Kelola Kategori</h2>
+              <form onSubmit={handleAddCategory} className="flex gap-2 mb-6">
+                <input
+                  type="text"
+                  required
+                  placeholder="Nama Kategori Baru"
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-primary focus:border-primary"
+                />
+                <button type="submit" className="bg-primary text-white px-4 py-2 rounded-md hover:bg-primary-dark whitespace-nowrap">
+                  Tambah
+                </button>
+              </form>
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <tbody>
+                    {categories.map((cat) => (
+                      <tr key={cat.id} className="border-b border-gray-100 hover:bg-gray-50 last:border-0">
+                        <td className="p-3 font-medium text-gray-900">{cat.name}</td>
+                        <td className="p-3 text-right">
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`Yakin hapus kategori ${cat.name}?`)) {
+                                deleteCategory(cat.id);
+                              }
+                            }}
+                            className="text-red-500 hover:text-red-700 p-1"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {categories.length === 0 && (
+                      <tr>
+                        <td colSpan={2} className="p-4 text-center text-gray-500">Belum ada kategori.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+              <h2 className="text-xl font-bold mb-4">Kelola Merek</h2>
+              <form onSubmit={handleAddBrand} className="flex gap-2 mb-6">
+                <input
+                  type="text"
+                  required
+                  placeholder="Nama Merek Baru"
+                  value={newBrand}
+                  onChange={(e) => setNewBrand(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-primary focus:border-primary"
+                />
+                <button type="submit" className="bg-primary text-white px-4 py-2 rounded-md hover:bg-primary-dark whitespace-nowrap">
+                  Tambah
+                </button>
+              </form>
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <tbody>
+                    {brands.map((brand) => (
+                      <tr key={brand.id} className="border-b border-gray-100 hover:bg-gray-50 last:border-0">
+                        <td className="p-3 font-medium text-gray-900">{brand.name}</td>
+                        <td className="p-3 text-right">
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`Yakin hapus merek ${brand.name}?`)) {
+                                deleteBrand(brand.id);
+                              }
+                            }}
+                            className="text-red-500 hover:text-red-700 p-1"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {brands.length === 0 && (
+                      <tr>
+                        <td colSpan={2} className="p-4 text-center text-gray-500">Belum ada merek.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </>

@@ -4,12 +4,8 @@ import { Star, ShoppingCart, Filter, ChevronDown, Search, X } from 'lucide-react
 import { useProducts } from '../context/ProductContext';
 import { useCart } from '../context/CartContext';
 
-// Dummy data
-const categories = ['Semua', 'Kabel', 'Lampu LED', 'Saklar & Stop Kontak', 'MCB', 'Kapasitor', 'Fiting', 'Lainnya'];
-const brands = ['Semua', 'Shinyoku', 'Philips', 'Cahaya', 'Hannochs', 'Eterna', 'Broco', 'Schneider', 'Lainnya'];
-
 export function Products() {
-  const { products: allProducts } = useProducts();
+  const { products: allProducts, categories, brands } = useProducts();
   const { addToCart } = useCart();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Semua');
@@ -17,6 +13,10 @@ export function Products() {
   const [sortBy, setSortBy] = useState('terpopuler');
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Derive filter option lists from dynamic context arrays
+  const filterCategories = ['Semua', ...categories.map(c => c.name)];
+  const filterBrands = ['Semua', ...brands.map(b => b.name)];
 
   // Reset page when filters change
   useEffect(() => {
@@ -85,7 +85,7 @@ export function Products() {
                 <div className="mb-8">
                   <h3 className="font-bold text-gray-900 mb-4 text-lg border-b pb-2">Kategori</h3>
                   <ul className="space-y-2">
-                    {categories.map(cat => (
+                    {filterCategories.map(cat => (
                       <li key={cat}>
                         <button
                           onClick={() => setSelectedCategory(cat)}
@@ -105,7 +105,7 @@ export function Products() {
                 <div>
                   <h3 className="font-bold text-gray-900 mb-4 text-lg border-b pb-2">Merek</h3>
                   <ul className="space-y-2">
-                    {brands.map(brand => (
+                    {filterBrands.map(brand => (
                       <li key={brand}>
                         <button
                           onClick={() => setSelectedBrand(brand)}

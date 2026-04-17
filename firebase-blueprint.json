@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "A product available in the store",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "brand": { "type": "string" },
+        "price": { "type": "number" },
+        "originalPrice": { "type": "number" },
+        "rating": { "type": "number" },
+        "image": { "type": "string", "format": "url" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "category", "brand", "price", "originalPrice", "rating", "image"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "A product category",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name"]
+    },
+    "Brand": {
+      "title": "Brand",
+      "description": "A product brand",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name"]
+    },
+    "Promo": {
+      "title": "Promo",
+      "description": "A promotional offer",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "discount": { "type": "string" },
+        "image": { "type": "string", "format": "url" },
+        "terms": { "type": "string" }
+      },
+      "required": ["title", "description", "discount", "image", "terms"]
+    },
+    "PromoSettings": {
+      "title": "PromoSettings",
+      "description": "Global settings for promotions",
+      "type": "object",
+      "properties": {
+        "isActive": { "type": "boolean" },
+        "endDate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["isActive", "endDate"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Store all individual products"
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Store all product categories"
+    },
+    "/brands/{brandId}": {
+      "schema": { "$ref": "#/entities/Brand" },
+      "description": "Store all product brands"
+    },
+    "/promos/{promoId}": {
+      "schema": { "$ref": "#/entities/Promo" },
+      "description": "Store all individual promos"
+    },
+    "/settings/promo": {
+      "schema": { "$ref": "#/entities/PromoSettings" },
+      "description": "Store the global promo settings"
+    }
+  }
+}
